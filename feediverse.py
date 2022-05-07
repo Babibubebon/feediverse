@@ -110,21 +110,6 @@ def cleanup(text):
     return text.strip()
 
 
-def find_urls(html):
-    if not html:
-        return
-    urls = []
-    soup = BeautifulSoup(html, 'html.parser')
-    for tag in soup.find_all(["a", "img"]):
-        if tag.name == "a":
-            url = tag.get("href")
-        elif tag.name == "img":
-            url = tag.get("src")
-        if url and url not in urls:
-            urls.append(url)
-    return urls
-
-
 def yes_no(question):
     res = input(question + ' [y/n] ')
     return res.lower() in "y1"
