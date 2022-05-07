@@ -2,7 +2,6 @@
 
 import os
 import re
-import sys
 import yaml
 import argparse
 import dateutil
@@ -11,8 +10,10 @@ import feedparser
 from bs4 import BeautifulSoup
 from mastodon import Mastodon
 from datetime import datetime, timezone, MINYEAR
+from pprint import pprint
 
 DEFAULT_CONFIG_FILE = os.path.join("~", ".feediverse")
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -32,14 +33,12 @@ def main():
         print("using config file", config_file)
 
     if not os.path.isfile(config_file):
-        setup(config_file)        
+        setup(config_file)
 
     config = read_config(config_file)
 
     masto = Mastodon(
         api_base_url=config['url'],
-        client_id=config['client_id'],
-        client_secret=config['client_secret'],
         access_token=config['access_token']
     )
 
@@ -50,15 +49,23 @@ def main():
         for entry in get_feed(feed['url'], config['updated']):
             newest_post = max(newest_post, entry['updated'])
             if args.verbose:
-                print(entry)
+                pprint(entry)
+
+            status = {
+                'status': feed['template'].format(**entry)[:499],
+                'visibility': config.get('visibility')
+            }
             if args.dry_run:
-                print("trial run, not tooting ", entry["title"][:50])
+                pprint(status)
                 continue
-            masto.status_post(feed['template'].format(**entry)[:499])
+            res = masto.status_post(**status)
+            if args.verbose:
+                pprint(res)
 
     if not args.dry_run:
         config['updated'] = newest_post.isoformat()
         save_config(config, config_file)
+
 
 def get_feed(feed_url, last_update):
     feed = feedparser.parse(feed_url)
@@ -70,6 +77,7 @@ def get_feed(feed_url, last_update):
     entries.sort(key=lambda e: e.updated_parsed)
     for entry in entries:
         yield get_entry(entry)
+
 
 def get_entry(entry):
     hashtags = []
@@ -91,6 +99,7 @@ def get_entry(entry):
         'updated': dateutil.parser.parse(entry['updated'])
     }
 
+
 def cleanup(text):
     html = BeautifulSoup(text, 'html.parser')
     text = html.get_text()
@@ -99,6 +108,7 @@ def cleanup(text):
     text = re.sub(' +\n', '\n', text)
     text = re.sub('\n\n\n+', '\n\n', text, flags=re.M)
     return text.strip()
+
 
 def find_urls(html):
     if not html:
@@ -114,14 +124,17 @@ def find_urls(html):
             urls.append(url)
     return urls
 
+
 def yes_no(question):
     res = input(question + ' [y/n] ')
     return res.lower() in "y1"
 
+
 def save_config(config, config_file):
     copy = dict(config)
     with open(config_file, 'w') as fh:
-        fh.write(yaml.dump(copy, default_flow_style=False))
+        fh.write(yaml.dump(copy, default_flow_style=False, allow_unicode=True))
+
 
 def read_config(config_file):
     config = {
@@ -134,21 +147,20 @@ def read_config(config_file):
     config.update(cfg)
     return config
 
+
 def setup(config_file):
     url = input('What is your Mastodon Instance URL? ')
     have_app = yes_no('Do you have your app credentials already?')
     if have_app:
-        name = 'feediverse'
-        client_id = input('What is your app\'s client id: ')
-        client_secret = input('What is your client secret: ')
+        name = input('app name (e.g. feediverse): ')
         access_token = input('access_token: ')
     else:
         print("Ok, I'll need a few things in order to get your access token")
-        name = input('app name (e.g. feediverse): ') 
+        name = input('app name (e.g. feediverse): ')
         client_id, client_secret = Mastodon.create_app(
             api_base_url=url,
             client_name=name,
-            #scopes=['read', 'write'],
+            # scopes=['read', 'write'],
             website='https://github.com/edsu/feediverse'
         )
         username = input('mastodon username (email): ')
@@ -161,11 +173,9 @@ def setup(config_file):
     config = {
         'name': name,
         'url': url,
-        'client_id': client_id,
-        'client_secret': client_secret,
         'access_token': access_token,
         'feeds': [
-            {'url': feed_url, 'template': '{title} {url}'}
+            {'url': feed_url, 'template': "{title}\n{link}"}
         ]
     }
     if not old_posts:
@@ -176,6 +186,7 @@ def setup(config_file):
     print("Add a line line this to your crontab to check every 15 minutes:")
     print("*/15 * * * * /usr/local/bin/feediverse")
     print("")
+
 
 if __name__ == "__main__":
     main()
