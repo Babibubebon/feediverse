@@ -170,7 +170,7 @@ def setup(config_file):
             {'url': feed_url, 'template': "{title}\n{link}"}
         ],
         'visibility': 'unlisted',
-        'max_chars': 500.
+        'max_chars': 500
     }
     if not old_posts:
         config['updated'] = datetime.now(tz=timezone.utc).isoformat()
