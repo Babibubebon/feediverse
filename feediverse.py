@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 import yaml
 import argparse
 import dateutil
@@ -52,7 +53,7 @@ def main():
                 pprint(entry)
 
             status = {
-                'status': feed['template'].format(**entry)[:499],
+                'status': feed['template'].format(**entry)[:config.get('max_chars', 500)],
                 'visibility': config.get('visibility')
             }
             if args.dry_run:
@@ -134,42 +135,51 @@ def read_config(config_file):
 
 
 def setup(config_file):
-    url = input('What is your Mastodon Instance URL? ')
+    url = input('What is your Mastodon Instance URL?: ')
     have_app = yes_no('Do you have your app credentials already?')
     if have_app:
         name = input('app name (e.g. feediverse): ')
-        access_token = input('access_token: ')
+        client_id = input('What is your app\'s client id: ')
+        client_secret = input('What is your client secret: ')
     else:
         print("Ok, I'll need a few things in order to get your access token")
         name = input('app name (e.g. feediverse): ')
         client_id, client_secret = Mastodon.create_app(
             api_base_url=url,
             client_name=name,
-            # scopes=['read', 'write'],
-            website='https://github.com/edsu/feediverse'
+            scopes=['read', 'write'],
+            website='https://github.com/Babibubebon/feediverse'
         )
-        username = input('mastodon username (email): ')
-        password = input('mastodon password (not stored): ')
-        m = Mastodon(client_id=client_id, client_secret=client_secret, api_base_url=url)
-        access_token = m.log_in(username, password)
+
+    # authorize and get access token
+    m = Mastodon(client_id=client_id, client_secret=client_secret, api_base_url=url)
+    auth_request_url = m.auth_request_url(client_id=client_id)
+    print('Open the following URL and login:', auth_request_url)
+    code = input('Paste displayed code: ')
+    access_token = m.log_in(code=code, scopes=['read', 'write'])
 
     feed_url = input('RSS/Atom feed URL to watch: ')
-    old_posts = yes_no('Shall already existing entries be tooted, too?')
+    old_posts = yes_no('Shall already existing entries be posted, too?')
     config = {
         'name': name,
         'url': url,
+        'client_id': client_id,
+        'client_secret': client_secret,
         'access_token': access_token,
         'feeds': [
             {'url': feed_url, 'template': "{title}\n{link}"}
-        ]
+        ],
+        'visibility': 'unlisted',
+        'max_chars': 500.
     }
     if not old_posts:
         config['updated'] = datetime.now(tz=timezone.utc).isoformat()
     save_config(config, config_file)
+
     print("")
-    print("Your feediverse configuration has been saved to {}".format(config_file))
+    print("Your feediverse configuration has been saved to {}".format(os.path.realpath(config_file)))
     print("Add a line line this to your crontab to check every 15 minutes:")
-    print("*/15 * * * * /usr/local/bin/feediverse")
+    print(f"*/15 * * * * {sys.argv[0]}")
     print("")
 
 
