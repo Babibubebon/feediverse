@@ -89,7 +89,7 @@ def get_entry(entry):
     content = entry.get('content', '') or ''
     if content:
         content = cleanup(content[0].get('value', ''))
-    url = entry.id
+    url = entry.id if hasattr(entry, 'id') else entry.link
     return {
         'url': url,
         'link': entry.link,
