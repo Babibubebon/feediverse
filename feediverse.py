@@ -7,13 +7,24 @@ import yaml
 import argparse
 import dateutil
 import feedparser
+import logging
+import time
 
 from bs4 import BeautifulSoup
 from mastodon import Mastodon
+from mastodon.Mastodon import MastodonError
 from datetime import datetime, timezone, MINYEAR
 from pprint import pprint
 
 DEFAULT_CONFIG_FILE = os.path.join("~", ".feediverse")
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -26,12 +37,17 @@ def main():
     parser.add_argument("-c", "--config",
                         help="config file to use",
                         default=os.path.expanduser(DEFAULT_CONFIG_FILE))
+    parser.add_argument("-s", "--sleep", type=float, default=0.0)
 
     args = parser.parse_args()
-    config_file = args.config
 
     if args.verbose:
-        print("using config file", config_file)
+        logger.setLevel(logging.DEBUG)
+
+    config_file = args.config
+
+    logger.debug(f"using config file: {config_file}")
+    logger.debug(f"sleep interval: {args.sleep} s")
 
     if not os.path.isfile(config_file):
         setup(config_file)
@@ -43,14 +59,14 @@ def main():
         access_token=config['access_token']
     )
 
+    has_error = False
     newest_post = config['updated']
     for feed in config['feeds']:
         if args.verbose:
-            print(f"fetching {feed['url']} entries since {config['updated']}")
+            logger.debug(f"fetching {feed['url']} entries since {config['updated']}")
         for entry in get_feed(feed['url'], config['updated']):
+            logger.debug(entry)
             newest_post = max(newest_post, entry['updated'])
-            if args.verbose:
-                pprint(entry)
 
             status = {
                 'status': feed['template'].format(**entry)[:config.get('max_chars', 500)],
@@ -59,13 +75,21 @@ def main():
             if args.dry_run:
                 pprint(status)
                 continue
-            res = masto.status_post(**status)
-            if args.verbose:
-                pprint(res)
+            try:
+                res = masto.status_post(**status)
+            except MastodonError:
+                logging.exception("failed to post a status")
+                has_error = True
+                break
+            logger.debug(res)
+
+            time.sleep(args.sleep)
 
     if not args.dry_run:
         config['updated'] = newest_post.isoformat()
         save_config(config, config_file)
+
+    sys.exit(1 if has_error else 0)
 
 
 def get_feed(feed_url, last_update):
